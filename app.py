@@ -2,13 +2,6 @@ import streamlit as st
 import pandas as pd
 import re
 from io import BytesIO
-from datetime import datetime, time
-
-# ============================================================
-
-# CONFIGURACIÓN
-
-# ============================================================
 
 st.set_page_config(
 page_title="Control Geovictoria",
@@ -19,27 +12,15 @@ layout="wide"
 SUELDO_BASE = 539000
 JORNADA_SEMANAL = 40
 
-# Fórmula definida:
-
-# sueldo / 30 * 7 / 40
-
 VALOR_HORA = SUELDO_BASE / 30 * 7 / JORNADA_SEMANAL
 VALOR_MINUTO = VALOR_HORA / 60
 
-# ============================================================
-
-# FUNCIONES GENERALES
-
-# ============================================================
-
 def limpiar_texto(valor):
-"""Limpia textos y evita valores NaN."""
 if pd.isna(valor):
 return ""
 return str(valor).strip()
 
 def normalizar_columna(nombre):
-"""Normaliza nombres de columnas para encontrarlos fácilmente."""
 texto = str(nombre).strip().lower()
 
 ```
@@ -62,138 +43,85 @@ return texto
 ```
 
 def encontrar_columna(df, nombres):
-"""Busca una columna por diferentes nombres posibles."""
+for columna in df.columns:
+columna_limpia = normalizar_columna(columna)
 
 ```
-columnas_normalizadas = {
-    normalizar_columna(col): col
-    for col in df.columns
-}
+    for nombre in nombres:
+        nombre_limpio = normalizar_columna(nombre)
 
-for nombre in nombres:
-    nombre_normalizado = normalizar_columna(nombre)
+        if columna_limpia == nombre_limpio:
+            return columna
 
-    if nombre_normalizado in columnas_normalizadas:
-        return columnas_normalizadas[nombre_normalizado]
-
-# Búsqueda parcial
 for columna in df.columns:
-    columna_normalizada = normalizar_columna(columna)
+    columna_limpia = normalizar_columna(columna)
 
     for nombre in nombres:
-        nombre_normalizado = normalizar_columna(nombre)
+        nombre_limpio = normalizar_columna(nombre)
 
-        if nombre_normalizado in columna_normalizada:
+        if nombre_limpio in columna_limpia:
             return columna
 
 return None
 ```
 
-# ============================================================
-
-# CONVERSIÓN DE HORAS
-
-# ============================================================
-
-def valor_a_minutos(valor):
-"""
-Convierte diferentes formatos de hora a minutos.
+def convertir_minutos(valor):
+if pd.isna(valor):
+return 0
 
 ```
-Ejemplos:
--03:35 -> -215
--00:02 -> -2
-03:35 -> 215
--3 h 35 min -> -215
-"""
-
-if pd.isna(valor):
-    return 0
-
-if isinstance(valor, time):
-    return valor.hour * 60 + valor.minute + valor.second / 60
-
 if isinstance(valor, pd.Timedelta):
     return valor.total_seconds() / 60
 
-if isinstance(valor, datetime):
-    return valor.hour * 60 + valor.minute + valor.second / 60
-
 texto = str(valor).strip().lower()
 
-if texto in [
-    "",
-    "nan",
-    "none",
-    "nat",
-    "-",
-    "sin marca",
-    "00:00",
-    "0:00",
-    "00:00:00",
-    "0"
-]:
+if texto in ["", "nan", "none", "nat", "-", "sin marca"]:
     return 0
 
-# ----------------------------------------
-# Formato HH:MM:SS
-# ----------------------------------------
-
-patron_hms = re.match(
+patron = re.match(
     r"^(-)?(\d+):(\d+):(\d+)$",
     texto
 )
 
-if patron_hms:
-    signo = -1 if patron_hms.group(1) else 1
+if patron:
+    signo = -1 if patron.group(1) else 1
+    horas = int(patron.group(2))
+    minutos = int(patron.group(3))
+    segundos = int(patron.group(4))
 
-    horas = int(patron_hms.group(2))
-    minutos = int(patron_hms.group(3))
-    segundos = int(patron_hms.group(4))
+    return signo * (
+        horas * 60
+        + minutos
+        + segundos / 60
+    )
 
-    total = horas * 60 + minutos + segundos / 60
-
-    return signo * total
-
-# ----------------------------------------
-# Formato HH:MM
-# ----------------------------------------
-
-patron_hm = re.match(
+patron = re.match(
     r"^(-)?(\d+):(\d+)$",
     texto
 )
 
-if patron_hm:
-    signo = -1 if patron_hm.group(1) else 1
+if patron:
+    signo = -1 if patron.group(1) else 1
+    horas = int(patron.group(2))
+    minutos = int(patron.group(3))
 
-    horas = int(patron_hm.group(2))
-    minutos = int(patron_hm.group(3))
+    return signo * (
+        horas * 60 + minutos
+    )
 
-    total = horas * 60 + minutos
-
-    return signo * total
-
-# ----------------------------------------
-# Formato -3 h 35 min
-# ----------------------------------------
-
-patron_texto = re.search(
-    r"(-)?\s*(\d+)\s*h(?:oras?)?\s*(\d+)?\s*min",
+patron = re.search(
+    r"(-)?\s*(\d+)\s*h\s*(\d+)?\s*min",
     texto
 )
 
-if patron_texto:
-    signo = -1 if patron_texto.group(1) else 1
+if patron:
+    signo = -1 if patron.group(1) else 1
+    horas = int(patron.group(2))
+    minutos = int(patron.group(3) or 0)
 
-    horas = int(patron_texto.group(2))
-    minutos = int(patron_texto.group(3) or 0)
-
-    return signo * (horas * 60 + minutos)
-
-# ----------------------------------------
-# Intentar número
-# ----------------------------------------
+    return signo * (
+        horas * 60 + minutos
+    )
 
 try:
     return float(valor)
@@ -202,122 +130,66 @@ except:
 ```
 
 def minutos_a_texto(minutos):
-"""Convierte minutos a formato legible."""
-
-```
-if pd.isna(minutos):
-    minutos = 0
-
 minutos = int(round(minutos))
 
+```
 signo = "-" if minutos < 0 else ""
 
-minutos_abs = abs(minutos)
-
-horas = minutos_abs // 60
-minutos_restantes = minutos_abs % 60
-
-return f"{signo}{horas} h {minutos_restantes:02d} min"
-```
-
-def minutos_positivos_a_texto(minutos):
-"""Muestra horas positivas."""
-
-```
-minutos = abs(int(round(minutos)))
+minutos = abs(minutos)
 
 horas = minutos // 60
 minutos_restantes = minutos % 60
 
-return f"{horas} h {minutos_restantes:02d} min"
+return (
+    f"{signo}{horas} h "
+    f"{minutos_restantes:02d} min"
+)
 ```
 
-# ============================================================
-
-# DESCUENTO
-
-# ============================================================
-
-def calcular_descuento(minutos):
-"""
-Calcula descuento SOLO sobre minutos negativos.
+def horas_positivas_a_texto(minutos):
+minutos = int(round(abs(minutos)))
 
 ```
-Las horas extras NO compensan las horas faltantes.
-"""
+horas = minutos // 60
+minutos_restantes = minutos % 60
 
-minutos_negativos = abs(min(minutos, 0))
-
-return minutos_negativos * VALOR_MINUTO
+return (
+    f"{horas} h "
+    f"{minutos_restantes:02d} min"
+)
 ```
-
-# ============================================================
-
-# DETECCIÓN DE SEMANA
-
-# ============================================================
 
 def obtener_semana(fecha):
-"""
-Determina la semana dentro del mes.
+if pd.isna(fecha):
+return None
 
 ```
-Semana 1: días 1 al 6
-Semana 2: días 7 al 13
-Semana 3: días 14 al 20
-Semana 4: días 21 al 27
-Semana 5: días 28 al final del mes
-"""
-
-if pd.isna(fecha):
-    return None
-
 dia = fecha.day
 
 if dia <= 6:
     return 1
-elif dia <= 13:
+
+if dia <= 13:
     return 2
-elif dia <= 20:
+
+if dia <= 20:
     return 3
-elif dia <= 27:
+
+if dia <= 27:
     return 4
-else:
-    return 5
+
+return 5
 ```
-
-# ============================================================
-
-# PROCESAMIENTO DEL EXCEL
-
-# ============================================================
 
 def leer_excel(archivo):
-"""
-Lee el Excel real de Geovictoria.
+try:
+df = pd.read_excel(
+archivo,
+header=2
+)
 
 ```
-Busca automáticamente:
-- Nombre
-- Apellidos
-- Grupo
-- Fecha
-- Diferencia del día
-"""
-
-try:
-
-    # El Excel de Geovictoria tiene encabezados en la fila 3
-    df = pd.read_excel(
-        archivo,
-        header=2
-    )
-
     df = df.dropna(how="all")
-
-    # ----------------------------------------
-    # Buscar columnas
-    # ----------------------------------------
 
     col_nombre = encontrar_columna(
         df,
@@ -347,10 +219,6 @@ try:
         ]
     )
 
-    # ----------------------------------------
-    # Verificar columnas
-    # ----------------------------------------
-
     faltantes = []
 
     if col_nombre is None:
@@ -369,23 +237,18 @@ try:
         faltantes.append("Diferencia del día")
 
     if faltantes:
-
         st.error(
-            "No se encontraron estas columnas: "
+            "No se encontraron: "
             + ", ".join(faltantes)
         )
 
         st.write(
-            "Columnas encontradas en el archivo:"
+            "Columnas encontradas:"
         )
 
         st.write(list(df.columns))
 
         return pd.DataFrame()
-
-    # ----------------------------------------
-    # Crear tabla limpia
-    # ----------------------------------------
 
     datos = pd.DataFrame()
 
@@ -424,73 +287,48 @@ try:
 
     datos["Diferencia Minutos"] = (
         df[col_diferencia]
-        .apply(valor_a_minutos)
+        .apply(convertir_minutos)
     )
-
-    # ----------------------------------------
-    # Eliminar filas que no corresponden
-    # ----------------------------------------
 
     datos = datos[
         (datos["Ejecutivo"] != "")
-        &
-        (datos["Tienda"] != "")
-        &
-        (datos["Fecha"].notna())
+        & (datos["Tienda"] != "")
+        & (datos["Fecha"].notna())
     ].copy()
-
-    # ----------------------------------------
-    # Semana automática
-    # ----------------------------------------
 
     datos["Semana"] = datos["Fecha"].apply(
         obtener_semana
     )
 
-    datos["Semana"] = datos["Semana"].astype("Int64")
-
     return datos
 
 except Exception as error:
-
     st.error(
-        f"No fue posible leer el archivo: {error}"
+        f"Error al leer el Excel: {error}"
     )
 
     return pd.DataFrame()
 ```
 
-# ============================================================
-
-# TÍTULO
-
-# ============================================================
-
 st.title("📊 Control de Diferencias Geovictoria")
 
 st.write(
-"Carga tu archivo mensual de Geovictoria y el sistema "
-"se encargará de separar automáticamente las horas "
-"faltantes y las horas extras."
+"Carga tu Excel mensual de Geovictoria "
+"para controlar horas faltantes, horas "
+"extras y descuentos aproximados."
 )
 
 st.info(
-f"💰 Sueldo base: ${SUELDO_BASE:,.0f} | "
-f"⏱️ Jornada: {JORNADA_SEMANAL} horas semanales | "
-f"💵 Valor hora estimado: ${VALOR_HORA:,.2f} | "
-f"💵 Valor minuto: ${VALOR_MINUTO:,.2f}"
+f"Sueldo base: ${SUELDO_BASE:,.0f} | "
+f"Jornada: {JORNADA_SEMANAL} horas | "
+f"Valor hora: ${VALOR_HORA:,.2f} | "
+f"Valor minuto: ${VALOR_MINUTO:,.2f}"
 )
 
-# ============================================================
-
-# CARGA DEL ARCHIVO
-
-# ============================================================
-
-st.subheader("📁 Cargar archivo de Geovictoria")
+st.subheader("📁 Cargar Excel")
 
 archivo = st.file_uploader(
-"Selecciona el Excel mensual actualizado",
+"Selecciona el archivo mensual de Geovictoria",
 type=["xlsx", "xls"]
 )
 
@@ -501,49 +339,45 @@ datos = leer_excel(archivo)
 
 if not datos.empty:
 
-    # ====================================================
-    # RESUMEN GENERAL DE DATOS
-    # ====================================================
-
-    # Horas faltantes
-    datos["Minutos Faltantes"] = datos[
-        "Diferencia Minutos"
-    ].apply(
-        lambda x: abs(min(x, 0))
+    datos["Faltantes"] = (
+        datos["Diferencia Minutos"]
+        .apply(
+            lambda x: abs(min(x, 0))
+        )
     )
 
-    # Horas extras
-    datos["Minutos Extras"] = datos[
-        "Diferencia Minutos"
-    ].apply(
-        lambda x: max(x, 0)
+    datos["Extras"] = (
+        datos["Diferencia Minutos"]
+        .apply(
+            lambda x: max(x, 0)
+        )
     )
 
-    # ====================================================
-    # FILTROS
-    # ====================================================
+    st.success(
+        f"Archivo procesado correctamente. "
+        f"Se encontraron {len(datos):,} registros."
+    )
 
     st.subheader("🔎 Filtros")
 
-    col_filtro1, col_filtro2 = st.columns(2)
+    col1, col2 = st.columns(2)
 
-    with col_filtro1:
+    with col1:
 
         tiendas = sorted(
             datos["Tienda"]
-            .dropna()
             .unique()
             .tolist()
         )
 
-        tienda_seleccionada = st.multiselect(
-            "Seleccionar tienda",
+        filtro_tienda = st.multiselect(
+            "Tienda",
             tiendas
         )
 
-    with col_filtro2:
+    with col2:
 
-        semanas_disponibles = sorted(
+        semanas = sorted(
             datos["Semana"]
             .dropna()
             .astype(int)
@@ -551,73 +385,59 @@ if not datos.empty:
             .tolist()
         )
 
-        semana_seleccionada = st.multiselect(
-            "Seleccionar semana",
-            semanas_disponibles
+        filtro_semana = st.multiselect(
+            "Semana",
+            semanas
         )
 
     datos_filtrados = datos.copy()
 
-    if tienda_seleccionada:
-
+    if filtro_tienda:
         datos_filtrados = datos_filtrados[
             datos_filtrados["Tienda"].isin(
-                tienda_seleccionada
+                filtro_tienda
             )
         ]
 
-    if semana_seleccionada:
-
+    if filtro_semana:
         datos_filtrados = datos_filtrados[
             datos_filtrados["Semana"].isin(
-                semana_seleccionada
+                filtro_semana
             )
         ]
 
-    # ====================================================
-    # RESUMEN
-    # ====================================================
+    st.subheader("📌 Resumen")
 
-    st.subheader("📌 Resumen general")
-
-    resumen_ejecutivos = (
+    resumen = (
         datos_filtrados
         .groupby(
             ["Ejecutivo", "Tienda"],
             as_index=False
         )
         .agg(
-            Faltantes=(
-                "Minutos Faltantes",
-                "sum"
-            ),
-            Extras=(
-                "Minutos Extras",
-                "sum"
-            )
+            Faltantes=("Faltantes", "sum"),
+            Extras=("Extras", "sum")
         )
     )
 
-    total_ejecutivos = len(
-        resumen_ejecutivos
-    )
+    total_ejecutivos = len(resumen)
 
-    total_faltantes = resumen_ejecutivos[
+    total_faltantes = resumen[
         "Faltantes"
     ].sum()
 
-    total_extras = resumen_ejecutivos[
+    total_extras = resumen[
         "Extras"
     ].sum()
 
-    total_descuento = (
+    descuento_total = (
         total_faltantes
         * VALOR_MINUTO
     )
 
     casos_criticos = len(
-        resumen_ejecutivos[
-            resumen_ejecutivos["Faltantes"] >= 60
+        resumen[
+            resumen["Faltantes"] >= 60
         ]
     )
 
@@ -630,364 +450,69 @@ if not datos.empty:
 
     c2.metric(
         "🔴 Horas faltantes",
-        minutos_positivos_a_texto(
+        horas_positivas_a_texto(
             total_faltantes
         )
     )
 
     c3.metric(
         "🟢 Horas extras",
-        minutos_positivos_a_texto(
+        horas_positivas_a_texto(
             total_extras
         )
     )
 
     c4.metric(
         "💰 Descuento aprox.",
-        f"${total_descuento:,.0f}"
+        f"${descuento_total:,.0f}"
     )
 
     st.write(
-        f"⚠️ **Casos con 1 hora o más de tiempo faltante:** "
-        f"{casos_criticos}"
+        f"⚠️ Casos críticos "
+        f"(1 hora o más): {casos_criticos}"
     )
-
-    # ====================================================
-    # TABLA DE FALTANTES Y DESCUENTOS
-    # ====================================================
 
     st.subheader(
-        "🔴 Horas faltantes y descuentos aproximados"
+        "🔴 Horas faltantes y descuento aproximado"
     )
 
-    acumulado = (
-        datos_filtrados
+    faltantes = (
+        datos_filtrados[
+            datos_filtrados["Faltantes"] > 0
+        ]
         .groupby(
             ["Ejecutivo", "Tienda", "Semana"],
             as_index=False
-        )
-        .agg(
-            Faltantes=(
-                "Minutos Faltantes",
-                "sum"
-            )
-        )
+        )["Faltantes"]
+        .sum()
     )
 
-    tabla_faltantes = (
-        acumulado
-        .pivot_table(
-            index=["Ejecutivo", "Tienda"],
-            columns="Semana",
-            values="Faltantes",
-            aggfunc="sum",
-            fill_value=0
-        )
-        .reset_index()
-    )
-
-    # Crear semanas 1 a 5
-    for semana in range(1, 6):
-
-        if semana not in tabla_faltantes.columns:
-
-            tabla_faltantes[semana] = 0
-
-    tabla_faltantes = tabla_faltantes[
-        [
-            "Ejecutivo",
-            "Tienda",
-            1,
-            2,
-            3,
-            4,
-            5
-        ]
-    ]
-
-    tabla_faltantes = tabla_faltantes.rename(
-        columns={
-            1: "Semana 1",
-            2: "Semana 2",
-            3: "Semana 3",
-            4: "Semana 4",
-            5: "Semana 5"
-        }
-    )
-
-    columnas_semana = [
-        "Semana 1",
-        "Semana 2",
-        "Semana 3",
-        "Semana 4",
-        "Semana 5"
-    ]
-
-    tabla_faltantes["Total Negativo Minutos"] = (
-        tabla_faltantes[columnas_semana]
-        .sum(axis=1)
-    )
-
-    tabla_faltantes["Descuento Estimado"] = (
-        tabla_faltantes[
-            "Total Negativo Minutos"
-        ]
-        * VALOR_MINUTO
-    )
-
-    tabla_faltantes = tabla_faltantes[
-        tabla_faltantes[
-            "Total Negativo Minutos"
-        ] > 0
-    ].copy()
-
-    tabla_faltantes = tabla_faltantes.sort_values(
-        "Total Negativo Minutos",
-        ascending=False
-    )
-
-    tabla_faltantes["Total Negativo"] = (
-        tabla_faltantes[
-            "Total Negativo Minutos"
-        ]
-        .apply(
-            lambda x: "-"
-            + minutos_positivos_a_texto(x)
-        )
-    )
-
-    # Formatear semanas
-    for columna in columnas_semana:
-
-        tabla_faltantes[columna] = (
-            tabla_faltantes[columna]
-            .apply(
-                lambda x:
-                "-"
-                + minutos_positivos_a_texto(x)
-                if x > 0
-                else "0 h 00 min"
-            )
-        )
-
-    tabla_faltantes["Descuento Estimado"] = (
-        tabla_faltantes[
-            "Descuento Estimado"
-        ]
-        .apply(
-            lambda x: f"${x:,.0f}"
-        )
-    )
-
-    tabla_mostrar = tabla_faltantes[
-        [
-            "Ejecutivo",
-            "Tienda",
-            "Semana 1",
-            "Semana 2",
-            "Semana 3",
-            "Semana 4",
-            "Semana 5",
-            "Total Negativo",
-            "Descuento Estimado"
-        ]
-    ]
-
-    st.dataframe(
-        tabla_mostrar,
-        use_container_width=True,
-        hide_index=True
-    )
-
-    # ====================================================
-    # HORAS EXTRAS
-    # ====================================================
-
-    st.subheader(
-        "🟢 Horas extras registradas"
-    )
-
-    extras = (
-        datos_filtrados[
-            datos_filtrados["Minutos Extras"] > 0
-        ]
-        .groupby(
-            ["Ejecutivo", "Tienda"],
-            as_index=False
-        )
-        .agg(
-            Horas_Extras=(
-                "Minutos Extras",
-                "sum"
-            )
-        )
-    )
-
-    if extras.empty:
+    if faltantes.empty:
 
         st.info(
-            "No se registran horas extras en "
-            "el período seleccionado."
+            "No existen horas faltantes "
+            "en la selección."
         )
 
     else:
 
-        extras["Horas Extras"] = (
-            extras["Horas_Extras"]
-            .apply(
-                minutos_positivos_a_texto
+        tabla = (
+            faltantes
+            .pivot_table(
+                index=[
+                    "Ejecutivo",
+                    "Tienda"
+                ],
+                columns="Semana",
+                values="Faltantes",
+                aggfunc="sum",
+                fill_value=0
             )
+            .reset_index()
         )
 
-        extras = extras[
-            [
-                "Ejecutivo",
-                "Tienda",
-                "Horas Extras"
-            ]
-        ]
+        for semana in range(1, 6):
 
-        st.dataframe(
-            extras,
-            use_container_width=True,
-            hide_index=True
-        )
-
-    # ====================================================
-    # DETALLE DIARIO
-    # ====================================================
-
-    with st.expander(
-        "📅 Ver detalle diario"
-    ):
-
-        detalle = datos_filtrados.copy()
-
-        detalle["Semana"] = (
-            detalle["Semana"]
-            .apply(
-                lambda x:
-                f"Semana {int(x)}"
-                if pd.notna(x)
-                else ""
-            )
-        )
-
-        detalle["Diferencia del día"] = (
-            detalle["Diferencia Minutos"]
-            .apply(
-                lambda x:
-                minutos_a_texto(x)
-            )
-        )
-
-        detalle["Horas faltantes"] = (
-            detalle["Minutos Faltantes"]
-            .apply(
-                minutos_positivos_a_texto
-            )
-        )
-
-        detalle["Horas extras"] = (
-            detalle["Minutos Extras"]
-            .apply(
-                minutos_positivos_a_texto
-            )
-        )
-
-        detalle["Descuento aprox."] = (
-            detalle["Minutos Faltantes"]
-            .apply(
-                lambda x:
-                f"${x * VALOR_MINUTO:,.0f}"
-            )
-        )
-
-        detalle = detalle[
-            [
-                "Fecha",
-                "Semana",
-                "Ejecutivo",
-                "Tienda",
-                "Diferencia del día",
-                "Horas faltantes",
-                "Horas extras",
-                "Descuento aprox."
-            ]
-        ]
-
-        detalle = detalle.sort_values(
-            [
-                "Ejecutivo",
-                "Fecha"
-            ]
-        )
-
-        st.dataframe(
-            detalle,
-            use_container_width=True,
-            hide_index=True
-        )
-
-    # ====================================================
-    # DESCARGAR EXCEL
-    # ====================================================
-
-    st.subheader(
-        "📥 Descargar resultados"
-    )
-
-    archivo_salida = BytesIO()
-
-    with pd.ExcelWriter(
-        archivo_salida,
-        engine="openpyxl"
-    ) as writer:
-
-        tabla_mostrar.to_excel(
-            writer,
-            index=False,
-            sheet_name="Faltantes y descuentos"
-        )
-
-        extras.to_excel(
-            writer,
-            index=False,
-            sheet_name="Horas extras"
-        )
-
-        detalle.to_excel(
-            writer,
-            index=False,
-            sheet_name="Detalle diario"
-        )
-
-    st.download_button(
-        label="📥 Descargar Excel de resultados",
-        data=archivo_salida.getvalue(),
-        file_name=(
-            "Control_Geovictoria_"
-            "Resultados.xlsx"
-        ),
-        mime=(
-            "application/vnd.openxmlformats-officedocument."
-            "spreadsheetml.sheet"
-        )
-    )
-
-else:
-
-    st.warning(
-        "No se encontraron datos válidos "
-        "en el archivo."
-    )
-```
-
-else:
-
-```
-st.write(
-    "👆 Sube tu archivo mensual de Geovictoria "
-    "para comenzar."
-)
+            if semana not in tabla.columns:
+                ta
 ```
