@@ -2,6 +2,11 @@ import streamlit as st
 import pandas as pd
 from datetime import time
 
+
+# =========================================================
+# CONFIGURACIÓN
+# =========================================================
+
 st.set_page_config(
     page_title="Control Geovictoria",
     page_icon="⏱️",
@@ -16,23 +21,24 @@ st.set_page_config(
 def limpiar_texto(valor):
     if pd.isna(valor):
         return ""
+
     return str(valor).strip()
 
 
 def normalizar_columna(nombre):
-    return (
-        str(nombre)
-        .strip()
-        .lower()
-        .replace("\n", " ")
-        .replace("  ", " ")
-    )
+    texto = str(nombre).strip().lower()
+
+    texto = texto.replace("\n", " ")
+    texto = " ".join(texto.split())
+
+    return texto
 
 
 def buscar_columna(columnas, nombre_buscado):
     objetivo = normalizar_columna(nombre_buscado)
 
     for columna in columnas:
+
         if normalizar_columna(columna) == objetivo:
             return columna
 
@@ -40,38 +46,73 @@ def buscar_columna(columnas, nombre_buscado):
 
 
 def convertir_minutos(valor):
+
     if pd.isna(valor):
         return 0
 
+    # Timedelta de pandas
     if isinstance(valor, pd.Timedelta):
-        return int(valor.total_seconds() / 60)
 
+        return int(
+            round(
+                valor.total_seconds() / 60
+            )
+        )
+
+    # Hora de Python
     if isinstance(valor, time):
-        return valor.hour * 60 + valor.minute
 
+        return (
+            valor.hour * 60
+            + valor.minute
+            + round(valor.second / 60)
+        )
+
+    # Números
     if isinstance(valor, (int, float)):
-        # Excel puede guardar una hora como fracción de día
-        if abs(valor) < 1:
-            return round(valor * 24 * 60)
 
-        return round(valor)
+        if valor == 0:
+            return 0
+
+        # Excel puede representar una hora como
+        # fracción de día
+        if abs(valor) < 1:
+
+            return int(
+                round(
+                    valor * 24 * 60
+                )
+            )
+
+        return int(round(valor))
 
     texto = str(valor).strip()
 
     if texto == "":
         return 0
 
+    # Casos como:
+    # -03:35
+    # -00:02
+    # 00:00
+    # 03:35
     negativo = texto.startswith("-")
+
     texto = texto.replace("-", "").strip()
 
     partes = texto.split(":")
 
     try:
+
         if len(partes) == 2:
+
             horas = int(partes[0])
             minutos = int(partes[1])
 
-            total = horas * 60 + minutos
+            total = (
+                horas * 60
+                + minutos
+            )
 
             if negativo:
                 total = -total
@@ -79,37 +120,53 @@ def convertir_minutos(valor):
             return total
 
         if len(partes) == 3:
+
             horas = int(partes[0])
             minutos = int(partes[1])
-            segundos = int(float(partes[2]))
+            segundos = int(
+                float(partes[2])
+            )
 
-            total = horas * 60 + minutos + round(segundos / 60)
+            total = (
+                horas * 60
+                + minutos
+                + round(segundos / 60)
+            )
 
             if negativo:
                 total = -total
 
             return total
 
-    except:
+    except Exception:
         return 0
 
     return 0
 
 
 def minutos_a_texto(minutos):
-    minutos = int(round(minutos))
 
-    signo = "-" if minutos < 0 else ""
+    minutos = int(
+        round(minutos)
+    )
+
+    signo = ""
+
+    if minutos < 0:
+        signo = "-"
 
     minutos = abs(minutos)
 
     horas = minutos // 60
     mins = minutos % 60
 
-    return f"{signo}{horas} h {mins:02d} min"
+    return (
+        f"{signo}{horas} h {mins:02d} min"
+    )
 
 
 def obtener_semana(fecha):
+
     if pd.isna(fecha):
         return None
 
@@ -130,56 +187,197 @@ def obtener_semana(fecha):
     return "Semana 5"
 
 
+# =========================================================
+# LEER EXCEL
+# =========================================================
+
 def leer_excel(archivo):
+
+    # -----------------------------------------------------
+    # PRIMERO: buscar automáticamente la fila de encabezados
+    # -----------------------------------------------------
+
+    vista = pd.read_excel(
+        archivo,
+        header=None,
+        nrows=20
+    )
+
+    fila_encabezado = None
+
+    for i in range(len(vista)):
+
+        valores = [
+            normalizar_columna(x)
+            for x in vista.iloc[i].tolist()
+        ]
+
+        tiene_nombre = (
+            "nombre" in valores
+        )
+
+        tiene_apellidos = (
+            "apellidos" in valores
+        )
+
+        tiene_grupo = (
+            "grupo" in valores
+        )
+
+        tiene_fecha = (
+            "fecha" in valores
+        )
+
+        tiene_diferencia = (
+            "diferencia del día" in valores
+        )
+
+        if (
+            tiene_nombre
+            and tiene_apellidos
+            and tiene_grupo
+            and tiene_fecha
+            and tiene_diferencia
+        ):
+
+            fila_encabezado = i
+
+            break
+
+    # -----------------------------------------------------
+    # SI NO ENCUENTRA LA FILA
+    # -----------------------------------------------------
+
+    if fila_encabezado is None:
+
+        st.error(
+            "No pude encontrar automáticamente "
+            "los encabezados del Excel."
+        )
+
+        st.write(
+            "Estas son las primeras filas del archivo:"
+        )
+
+        st.dataframe(
+            vista,
+            use_container_width=True
+        )
+
+        st.stop()
+
+    # -----------------------------------------------------
+    # LEER EL EXCEL CON LA FILA CORRECTA
+    # -----------------------------------------------------
 
     df = pd.read_excel(
         archivo,
-        header=2
+        header=fila_encabezado
     )
 
     columnas = list(df.columns)
 
-    col_nombre = buscar_columna(columnas, "Nombre")
-    col_apellidos = buscar_columna(columnas, "Apellidos")
-    col_grupo = buscar_columna(columnas, "Grupo")
-    col_fecha = buscar_columna(columnas, "Fecha")
-    col_diferencia = buscar_columna(columnas, "Diferencia del día")
+    # -----------------------------------------------------
+    # BUSCAR COLUMNAS
+    # -----------------------------------------------------
+
+    col_nombre = buscar_columna(
+        columnas,
+        "Nombre"
+    )
+
+    col_apellidos = buscar_columna(
+        columnas,
+        "Apellidos"
+    )
+
+    col_grupo = buscar_columna(
+        columnas,
+        "Grupo"
+    )
+
+    col_fecha = buscar_columna(
+        columnas,
+        "Fecha"
+    )
+
+    col_diferencia = buscar_columna(
+        columnas,
+        "Diferencia del día"
+    )
+
+    # -----------------------------------------------------
+    # VERIFICAR COLUMNAS
+    # -----------------------------------------------------
 
     faltantes_columnas = []
 
     if col_nombre is None:
-        faltantes_columnas.append("Nombre")
-
-    if col_apellidos is None:
-        faltantes_columnas.append("Apellidos")
-
-    if col_grupo is None:
-        faltantes_columnas.append("Grupo")
-
-    if col_fecha is None:
-        faltantes_columnas.append("Fecha")
-
-    if col_diferencia is None:
-        faltantes_columnas.append("Diferencia del día")
-
-    if faltantes_columnas:
-        st.error(
-            "No se encontraron estas columnas: "
-            + ", ".join(faltantes_columnas)
+        faltantes_columnas.append(
+            "Nombre"
         )
 
-        st.write("Columnas encontradas en el Excel:")
+    if col_apellidos is None:
+        faltantes_columnas.append(
+            "Apellidos"
+        )
+
+    if col_grupo is None:
+        faltantes_columnas.append(
+            "Grupo"
+        )
+
+    if col_fecha is None:
+        faltantes_columnas.append(
+            "Fecha"
+        )
+
+    if col_diferencia is None:
+        faltantes_columnas.append(
+            "Diferencia del día"
+        )
+
+    if faltantes_columnas:
+
+        st.error(
+            "No se encontraron estas columnas: "
+            + ", ".join(
+                faltantes_columnas
+            )
+        )
+
+        st.write(
+            "Columnas encontradas:"
+        )
+
         st.write(columnas)
 
         st.stop()
 
+    # -----------------------------------------------------
+    # CREAR EJECUTIVO
+    # -----------------------------------------------------
+
     df["Ejecutivo"] = (
-        df[col_nombre].apply(limpiar_texto)
+        df[col_nombre]
+        .apply(limpiar_texto)
         + " "
-        + df[col_apellidos].apply(limpiar_texto)
+        + df[col_apellidos]
+        .apply(limpiar_texto)
     ).str.strip()
 
-    df["Tienda"] = df[col_grupo].apply(limpiar_texto)
+    # -----------------------------------------------------
+    # TIENDA
+    # -----------------------------------------------------
+
+    df["Tienda"] = (
+        df[col_grupo]
+        .apply(limpiar_texto)
+    )
+
+    # -----------------------------------------------------
+    # FECHA
+    # -----------------------------------------------------
 
     df["Fecha"] = pd.to_datetime(
         df[col_fecha],
@@ -187,20 +385,63 @@ def leer_excel(archivo):
         dayfirst=True
     )
 
-    df["Diferencia Minutos"] = df[col_diferencia].apply(
-        convertir_minutos
+    # -----------------------------------------------------
+    # DIFERENCIA DEL DÍA
+    #
+    # IMPORTANTE:
+    # SOLO usamos esta columna para calcular faltantes
+    # y horas extras.
+    #
+    # NO usamos "Diferencia de ingreso REAL".
+    # -----------------------------------------------------
+
+    df["Diferencia Minutos"] = (
+        df[col_diferencia]
+        .apply(convertir_minutos)
     )
 
-    df["Semana"] = df["Fecha"].apply(obtener_semana)
+    # -----------------------------------------------------
+    # SEMANA AUTOMÁTICA
+    # -----------------------------------------------------
 
-    # Horas faltantes
-    df["Faltantes Minutos"] = df["Diferencia Minutos"].apply(
-        lambda x: abs(x) if x < 0 else 0
+    df["Semana"] = (
+        df["Fecha"]
+        .apply(obtener_semana)
     )
 
-    # Horas extras
-    df["Extras Minutos"] = df["Diferencia Minutos"].apply(
-        lambda x: x if x > 0 else 0
+    # -----------------------------------------------------
+    # HORAS FALTANTES
+    #
+    # Las diferencias negativas se convierten a positivas
+    # para poder acumularlas como tiempo faltante.
+    # -----------------------------------------------------
+
+    df["Faltantes Minutos"] = (
+        df["Diferencia Minutos"]
+        .apply(
+            lambda x:
+                abs(x)
+                if x < 0
+                else 0
+        )
+    )
+
+    # -----------------------------------------------------
+    # HORAS EXTRAS
+    #
+    # Se mantienen completamente separadas.
+    #
+    # NO compensan las horas faltantes.
+    # -----------------------------------------------------
+
+    df["Extras Minutos"] = (
+        df["Diferencia Minutos"]
+        .apply(
+            lambda x:
+                x
+                if x > 0
+                else 0
+        )
     )
 
     return df
@@ -210,16 +451,19 @@ def leer_excel(archivo):
 # TÍTULO
 # =========================================================
 
-st.title("⏱️ Control de Marcaciones Geovictoria")
+st.title(
+    "⏱️ Control de Marcaciones Geovictoria"
+)
 
 st.write(
-    "Carga el Excel mensual de Geovictoria para revisar "
-    "horas faltantes, horas extras y descuentos estimados."
+    "Carga el Excel mensual de Geovictoria "
+    "para revisar horas faltantes, horas extras "
+    "y descuentos estimados."
 )
 
 
 # =========================================================
-# CARGAR EXCEL
+# CARGAR ARCHIVO
 # =========================================================
 
 archivo = st.file_uploader(
@@ -231,7 +475,8 @@ archivo = st.file_uploader(
 if archivo is None:
 
     st.info(
-        "👆 Primero carga el archivo Excel de Geovictoria."
+        "👆 Primero carga el archivo Excel "
+        "de Geovictoria."
     )
 
     st.stop()
@@ -243,7 +488,9 @@ if archivo is None:
 
 try:
 
-    df = leer_excel(archivo)
+    df = leer_excel(
+        archivo
+    )
 
 except Exception as e:
 
@@ -260,15 +507,23 @@ except Exception as e:
 # FILTROS
 # =========================================================
 
-st.subheader("🔎 Filtros")
+st.subheader(
+    "🔎 Filtros"
+)
 
 col1, col2 = st.columns(2)
 
+
 with col1:
 
-    tiendas = ["Todas"] + sorted(
+    tiendas = [
+        "Todas"
+    ] + sorted(
         [
-            x for x in df["Tienda"].dropna().unique()
+            str(x)
+            for x in df["Tienda"]
+            .dropna()
+            .unique()
             if str(x).strip() != ""
         ]
     )
@@ -296,20 +551,26 @@ with col2:
     )
 
 
+# =========================================================
+# APLICAR FILTROS
+# =========================================================
+
 df_filtrado = df.copy()
 
 
 if tienda_seleccionada != "Todas":
 
     df_filtrado = df_filtrado[
-        df_filtrado["Tienda"] == tienda_seleccionada
+        df_filtrado["Tienda"]
+        == tienda_seleccionada
     ]
 
 
 if semana_seleccionada != "Todas":
 
     df_filtrado = df_filtrado[
-        df_filtrado["Semana"] == semana_seleccionada
+        df_filtrado["Semana"]
+        == semana_seleccionada
     ]
 
 
@@ -317,39 +578,86 @@ if semana_seleccionada != "Todas":
 # RESUMEN
 # =========================================================
 
-st.subheader("📊 Resumen")
+st.subheader(
+    "📊 Resumen"
+)
 
 
-total_ejecutivos = df_filtrado["Ejecutivo"].nunique()
+total_ejecutivos = (
+    df_filtrado["Ejecutivo"]
+    .nunique()
+)
 
-total_faltantes = df_filtrado["Faltantes Minutos"].sum()
 
-total_extras = df_filtrado["Extras Minutos"].sum()
-
-casos_criticos = (
-    df_filtrado
-    .groupby("Ejecutivo")["Faltantes Minutos"]
+total_faltantes = (
+    df_filtrado["Faltantes Minutos"]
     .sum()
 )
 
+
+total_extras = (
+    df_filtrado["Extras Minutos"]
+    .sum()
+)
+
+
+# Casos críticos:
+# 1 hora o más de tiempo faltante acumulado
+
 casos_criticos = (
-    casos_criticos[casos_criticos >= 60]
+    df_filtrado
+    .groupby("Ejecutivo")
+    ["Faltantes Minutos"]
+    .sum()
+)
+
+
+casos_criticos = (
+    casos_criticos[
+        casos_criticos >= 60
+    ]
     .count()
 )
 
 
-# Valor hora según fórmula definida
-valor_hora = (539000 / 30 * 7) / 40
+# =========================================================
+# CÁLCULO DESCUENTO
+# =========================================================
 
-valor_minuto = valor_hora / 60
+# Sueldo base:
+# $539.000
+#
+# Fórmula definida:
+#
+# 539.000 / 30 * 7 / 40
+#
+# = valor hora
 
-descuento_total = total_faltantes * valor_minuto
+valor_hora = (
+    539000 / 30 * 7
+) / 40
 
+
+valor_minuto = (
+    valor_hora / 60
+)
+
+
+descuento_total = (
+    total_faltantes
+    * valor_minuto
+)
+
+
+# =========================================================
+# TARJETAS DE RESUMEN
+# =========================================================
 
 c1, c2, c3, c4, c5 = st.columns(5)
 
 
 with c1:
+
     st.metric(
         "👥 Ejecutivos",
         total_ejecutivos
@@ -357,27 +665,36 @@ with c1:
 
 
 with c2:
+
     st.metric(
         "⏰ Horas faltantes",
-        minutos_a_texto(total_faltantes)
+        minutos_a_texto(
+            total_faltantes
+        )
     )
 
 
 with c3:
+
     st.metric(
         "➕ Horas extras",
-        minutos_a_texto(total_extras)
+        minutos_a_texto(
+            total_extras
+        )
     )
 
 
 with c4:
+
     st.metric(
         "💰 Descuento aprox.",
-        f"${descuento_total:,.0f}".replace(",", ".")
+        f"${descuento_total:,.0f}"
+        .replace(",", ".")
     )
 
 
 with c5:
+
     st.metric(
         "⚠️ Casos críticos",
         casos_criticos
@@ -385,10 +702,12 @@ with c5:
 
 
 # =========================================================
-# TABLA DE FALTANTES
+# TABLA DE HORAS FALTANTES
 # =========================================================
 
-st.subheader("⏰ Horas faltantes por ejecutivo")
+st.subheader(
+    "⏰ Horas faltantes por ejecutivo"
+)
 
 
 semanas_tabla = [
@@ -405,7 +724,11 @@ if len(df_filtrado) > 0:
     faltantes = (
         df_filtrado
         .groupby(
-            ["Ejecutivo", "Tienda", "Semana"]
+            [
+                "Ejecutivo",
+                "Tienda",
+                "Semana"
+            ]
         )["Faltantes Minutos"]
         .sum()
         .reset_index()
@@ -414,7 +737,10 @@ if len(df_filtrado) > 0:
     tabla = (
         faltantes
         .pivot_table(
-            index=["Ejecutivo", "Tienda"],
+            index=[
+                "Ejecutivo",
+                "Tienda"
+            ],
             columns="Semana",
             values="Faltantes Minutos",
             aggfunc="sum",
@@ -426,9 +752,16 @@ if len(df_filtrado) > 0:
 else:
 
     tabla = pd.DataFrame(
-        columns=["Ejecutivo", "Tienda"]
+        columns=[
+            "Ejecutivo",
+            "Tienda"
+        ]
     )
 
+
+# ---------------------------------------------------------
+# ASEGURAR LAS 5 SEMANAS
+# ---------------------------------------------------------
 
 for semana in semanas_tabla:
 
@@ -439,24 +772,44 @@ for semana in semanas_tabla:
 
 for semana in semanas_tabla:
 
-    tabla[semana] = tabla[semana].fillna(0)
+    tabla[semana] = (
+        tabla[semana]
+        .fillna(0)
+    )
 
 
-tabla["Total Negativo"] = tabla[semanas_tabla].sum(axis=1)
+# ---------------------------------------------------------
+# TOTAL NEGATIVO
+# ---------------------------------------------------------
 
-
-tabla["Descuento Estimado"] = (
-    tabla["Total Negativo"] * valor_minuto
+tabla["Total Negativo"] = (
+    tabla[semanas_tabla]
+    .sum(axis=1)
 )
 
+
+# ---------------------------------------------------------
+# DESCUENTO ESTIMADO
+# ---------------------------------------------------------
+
+tabla["Descuento Estimado"] = (
+    tabla["Total Negativo"]
+    * valor_minuto
+)
+
+
+# =========================================================
+# TABLA PARA MOSTRAR
+# =========================================================
 
 tabla_mostrar = tabla.copy()
 
 
 for semana in semanas_tabla:
 
-    tabla_mostrar[semana] = tabla_mostrar[semana].apply(
-        minutos_a_texto
+    tabla_mostrar[semana] = (
+        tabla_mostrar[semana]
+        .apply(minutos_a_texto)
     )
 
 
@@ -469,7 +822,9 @@ tabla_mostrar["Total Negativo"] = (
 tabla_mostrar["Descuento Estimado"] = (
     tabla["Descuento Estimado"]
     .apply(
-        lambda x: f"${x:,.0f}".replace(",", ".")
+        lambda x:
+            f"${x:,.0f}"
+            .replace(",", ".")
     )
 )
 
@@ -487,7 +842,11 @@ columnas_tabla = [
 ]
 
 
-tabla_mostrar = tabla_mostrar[columnas_tabla]
+tabla_mostrar = (
+    tabla_mostrar[
+        columnas_tabla
+    ]
+)
 
 
 st.dataframe(
@@ -501,7 +860,9 @@ st.dataframe(
 # HORAS EXTRAS
 # =========================================================
 
-st.subheader("➕ Horas extras")
+st.subheader(
+    "➕ Horas extras"
+)
 
 
 if len(df_filtrado) > 0:
@@ -509,7 +870,10 @@ if len(df_filtrado) > 0:
     extras = (
         df_filtrado
         .groupby(
-            ["Ejecutivo", "Tienda"]
+            [
+                "Ejecutivo",
+                "Tienda"
+            ]
         )["Extras Minutos"]
         .sum()
         .reset_index()
@@ -526,9 +890,10 @@ else:
     )
 
 
-extras["Horas Extras"] = extras[
-    "Extras Minutos"
-].apply(minutos_a_texto)
+extras["Horas Extras"] = (
+    extras["Extras Minutos"]
+    .apply(minutos_a_texto)
+)
 
 
 extras_mostrar = extras[
@@ -551,7 +916,9 @@ st.dataframe(
 # DETALLE DIARIO
 # =========================================================
 
-st.subheader("📅 Detalle diario")
+st.subheader(
+    "📅 Detalle diario"
+)
 
 
 detalle = df_filtrado[
@@ -565,15 +932,16 @@ detalle = df_filtrado[
 ].copy()
 
 
-detalle["Diferencia del día"] = detalle[
-    "Diferencia Minutos"
-].apply(
-    lambda x: minutos_a_texto(x)
+detalle["Diferencia del día"] = (
+    detalle["Diferencia Minutos"]
+    .apply(minutos_a_texto)
 )
 
 
 detalle = detalle.drop(
-    columns=["Diferencia Minutos"]
+    columns=[
+        "Diferencia Minutos"
+    ]
 )
 
 
@@ -596,10 +964,14 @@ st.dataframe(
 # DESCARGAR EXCEL
 # =========================================================
 
-st.subheader("📥 Descargar resultados")
+st.subheader(
+    "📥 Descargar resultados"
+)
 
 
-nombre_archivo = "Control_Geovictoria_Resultados.xlsx"
+nombre_archivo = (
+    "Control_Geovictoria_Resultados.xlsx"
+)
 
 
 with pd.ExcelWriter(
@@ -626,11 +998,17 @@ with pd.ExcelWriter(
     )
 
 
-with open(nombre_archivo, "rb") as archivo_excel:
+with open(
+    nombre_archivo,
+    "rb"
+) as archivo_excel:
 
     st.download_button(
         label="⬇️ Descargar Excel",
         data=archivo_excel,
         file_name=nombre_archivo,
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        mime=(
+            "application/vnd.openxmlformats-officedocument."
+            "spreadsheetml.sheet"
+        )
     )
