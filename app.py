@@ -514,5 +514,256 @@ if not datos.empty:
         for semana in range(1, 6):
 
             if semana not in tabla.columns:
-                ta
+                tabla[semana] = 0
+
+        tabla = tabla[
+            [
+                "Ejecutivo",
+                "Tienda",
+                1,
+                2,
+                3,
+                4,
+                5
+            ]
+        ]
+
+        tabla = tabla.rename(
+            columns={
+                1: "Semana 1",
+                2: "Semana 2",
+                3: "Semana 3",
+                4: "Semana 4",
+                5: "Semana 5"
+            }
+        )
+
+        semanas_columnas = [
+            "Semana 1",
+            "Semana 2",
+            "Semana 3",
+            "Semana 4",
+            "Semana 5"
+        ]
+
+        tabla["Total Minutos"] = (
+            tabla[semanas_columnas]
+            .sum(axis=1)
+        )
+
+        tabla["Descuento"] = (
+            tabla["Total Minutos"]
+            * VALOR_MINUTO
+        )
+
+        tabla = tabla.sort_values(
+            "Total Minutos",
+            ascending=False
+        )
+
+        tabla["Total Negativo"] = (
+            tabla["Total Minutos"]
+            .apply(
+                lambda x:
+                "-"
+                + horas_positivas_a_texto(x)
+            )
+        )
+
+        for columna in semanas_columnas:
+
+            tabla[columna] = (
+                tabla[columna]
+                .apply(
+                    lambda x:
+                    "-"
+                    + horas_positivas_a_texto(x)
+                    if x > 0
+                    else "0 h 00 min"
+                )
+            )
+
+        tabla["Descuento aprox."] = (
+            tabla["Descuento"]
+            .apply(
+                lambda x:
+                f"${x:,.0f}"
+            )
+        )
+
+        tabla_final = tabla[
+            [
+                "Ejecutivo",
+                "Tienda",
+                "Semana 1",
+                "Semana 2",
+                "Semana 3",
+                "Semana 4",
+                "Semana 5",
+                "Total Negativo",
+                "Descuento aprox."
+            ]
+        ]
+
+        st.dataframe(
+            tabla_final,
+            use_container_width=True,
+            hide_index=True
+        )
+
+    st.subheader(
+        "🟢 Horas extras"
+    )
+
+    extras = (
+        datos_filtrados[
+            datos_filtrados["Extras"] > 0
+        ]
+        .groupby(
+            ["Ejecutivo", "Tienda"],
+            as_index=False
+        )["Extras"]
+        .sum()
+    )
+
+    if extras.empty:
+
+        st.info(
+            "No existen horas extras "
+            "en la selección."
+        )
+
+    else:
+
+        extras["Horas extras"] = (
+            extras["Extras"]
+            .apply(
+                horas_positivas_a_texto
+            )
+        )
+
+        extras_final = extras[
+            [
+                "Ejecutivo",
+                "Tienda",
+                "Horas extras"
+            ]
+        ]
+
+        st.dataframe(
+            extras_final,
+            use_container_width=True,
+            hide_index=True
+        )
+
+    st.subheader(
+        "📅 Detalle diario"
+    )
+
+    detalle = datos_filtrados.copy()
+
+    detalle["Semana"] = (
+        detalle["Semana"]
+        .apply(
+            lambda x:
+            f"Semana {int(x)}"
+            if pd.notna(x)
+            else ""
+        )
+    )
+
+    detalle["Diferencia del día"] = (
+        detalle["Diferencia Minutos"]
+        .apply(minutos_a_texto)
+    )
+
+    detalle["Horas faltantes"] = (
+        detalle["Faltantes"]
+        .apply(horas_positivas_a_texto)
+    )
+
+    detalle["Horas extras"] = (
+        detalle["Extras"]
+        .apply(horas_positivas_a_texto)
+    )
+
+    detalle["Descuento aprox."] = (
+        detalle["Faltantes"]
+        .apply(
+            lambda x:
+            f"${x * VALOR_MINUTO:,.0f}"
+        )
+    )
+
+    detalle_final = detalle[
+        [
+            "Fecha",
+            "Semana",
+            "Ejecutivo",
+            "Tienda",
+            "Diferencia del día",
+            "Horas faltantes",
+            "Horas extras",
+            "Descuento aprox."
+        ]
+    ].sort_values(
+        ["Ejecutivo", "Fecha"]
+    )
+
+    with st.expander(
+        "Ver detalle por día"
+    ):
+
+        st.dataframe(
+            detalle_final,
+            use_container_width=True,
+            hide_index=True
+        )
+
+    st.subheader(
+        "📥 Descargar resultados"
+    )
+
+    archivo_salida = BytesIO()
+
+    with pd.ExcelWriter(
+        archivo_salida,
+        engine="openpyxl"
+    ) as writer:
+
+        tabla_final.to_excel(
+            writer,
+            index=False,
+            sheet_name="Faltantes"
+        )
+
+        extras_final.to_excel(
+            writer,
+            index=False,
+            sheet_name="Horas extras"
+        )
+
+        detalle_final.to_excel(
+            writer,
+            index=False,
+            sheet_name="Detalle diario"
+        )
+
+    st.download_button(
+        "📥 Descargar Excel",
+        data=archivo_salida.getvalue(),
+        file_name="Control_Geovictoria_Resultados.xlsx",
+        mime=(
+            "application/vnd.openxmlformats-officedocument."
+            "spreadsheetml.sheet"
+        )
+    )
+```
+
+else:
+
+```
+st.info(
+    "👆 Sube tu Excel mensual para comenzar."
+)
 ```
